@@ -1439,13 +1439,14 @@ index 0000000000..0a9c95d50e
 +}
 diff --git a/src/vs/server/node/channel.ts b/src/vs/server/node/channel.ts
 new file mode 100644
-index 0000000000..1166835371
+index 0000000000..6590636abd
 --- /dev/null
 +++ b/src/vs/server/node/channel.ts
-@@ -0,0 +1,343 @@
+@@ -0,0 +1,338 @@
 +import { Server } from '@coder/node-browser';
 +import * as path from 'path';
-+import { VSBuffer, VSBufferReadableStream } from 'vs/base/common/buffer';
++import { VSBuffer } from 'vs/base/common/buffer';
++import { CancellationTokenSource } from 'vs/base/common/cancellation';
 +import { Emitter, Event } from 'vs/base/common/event';
 +import { IDisposable } from 'vs/base/common/lifecycle';
 +import { OS } from 'vs/base/common/platform';
@@ -1457,7 +1458,6 @@ index 0000000000..1166835371
 +import { INativeEnvironmentService } from 'vs/platform/environment/node/environmentService';
 +import { ExtensionIdentifier, IExtensionDescription } from 'vs/platform/extensions/common/extensions';
 +import { FileDeleteOptions, FileOpenOptions, FileOverwriteOptions, FileReadStreamOptions, FileType, FileWriteOptions, IStat, IWatchOptions } from 'vs/platform/files/common/files';
-+import { createReadStream } from 'vs/platform/files/common/io';
 +import { DiskFileSystemProvider } from 'vs/platform/files/node/diskFileSystemProvider';
 +import { ILogService } from 'vs/platform/log/common/log';
 +import product from 'vs/platform/product/common/product';
@@ -1535,20 +1535,15 @@ index 0000000000..1166835371
 +	}
 +
 +	private readFileStream(resource: UriComponents, opts: FileReadStreamOptions): Event<ReadableStreamEventPayload<VSBuffer>> {
-+		let fileStream: VSBufferReadableStream | undefined;
++		const cts = new CancellationTokenSource();
++		const fileStream = this.provider.readFileStream(this.transform(resource), opts, cts.token);
 +		const emitter = new Emitter<ReadableStreamEventPayload<VSBuffer>>({
 +			onFirstListenerAdd: () => {
-+				if (!fileStream) {
-+					fileStream = createReadStream(this.provider, this.transform(resource), {
-+						...opts,
-+						bufferSize: 64 * 1024, // From DiskFileSystemProvider
-+					});
-+					fileStream.on('data', (data) => emitter.fire(data));
-+					fileStream.on('error', (error) => emitter.fire(error));
-+					fileStream.on('end', () => emitter.fire('end'));
-+				}
++				fileStream.on('data', (data) => emitter.fire(VSBuffer.wrap(data)));
++				fileStream.on('error', (error) => emitter.fire(error));
++				fileStream.on('end', () => emitter.fire('end'));
 +			},
-+			onLastListenerRemove: () => fileStream && fileStream.destroy(),
++			onLastListenerRemove: () => cts.cancel(),
 +		});
 +
 +		return emitter.event;
